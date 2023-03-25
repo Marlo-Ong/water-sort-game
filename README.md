@@ -1,6 +1,10 @@
 # water-sort-game
 Famous water sort mobile game recreated in Python
 
+How To Play:
+Sort the letters so that each letter fills its own vial.
+When pouring, the top of one vial must match the top letter of the other vial.
+
 TO-DO:
 - Create base game logic
 - Base game features:

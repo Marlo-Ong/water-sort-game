@@ -1,31 +1,32 @@
 import random
+import math
 
-MIN_NUM_VIALS = 5
-MAX_NUM_VIALS = 10
-MAX_BLOCKS = 4
+MAX_BLOCKS_PER_VIAL = 5
+NUM_PADDING_VIALS = 2
+NUM_ROWS_VIALS = 2
 MAX_EMPTY_VIALS = 2
-colors = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+MYSTERY_LEVEL_PERCENTAGE = .30
+COLORS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
 
 class Level:
-    def __init__(self):
+    def __init__(self, level_number):
         self.vials = []
-        self.difficulty = "Easy"
-        self.is_mystery_level = False
+        self.level_number = level_number
+        self.is_mystery_level = self.get_if_mystery_level_random()
         self.generate_random_level()
 
-    def generate_random_level(self):
-        """Generates random number of vials
-            containing random valid water blocks.
-            An empty vial is included at the end"""
+    def get_if_mystery_level_random(self):
+        """Player must have at least beaten level 5; Only odd levels can be mystery"""
+        return (self.level_number > 5 and self.level_number % 2 and random.random() <= MYSTERY_LEVEL_PERCENTAGE)
 
-        num_vials = random.randint(MIN_NUM_VIALS, MAX_NUM_VIALS)
-        valid_colors = colors[:num_vials]*MAX_BLOCKS
+    def generate_random_level(self):
+        num_vials = math.ceil(math.log2(self.level_number)) + NUM_PADDING_VIALS
+        valid_colors = COLORS[:num_vials] * MAX_BLOCKS_PER_VIAL
         random.shuffle(valid_colors)
 
         for _ in range(num_vials):
-            v = Vial()
-            v.generate_random_vial(valid_colors)
-            self.vials.append(v)
+            self.add_vial()
+            self.vials[-1].fill_vial_random(valid_colors, self.is_mystery_level)
         for _ in range(MAX_EMPTY_VIALS):
             self.vials.append(Vial())
 
@@ -35,38 +36,62 @@ class Level:
                 return False
         return True
 
+    def add_vial(self, num_blocks=MAX_BLOCKS_PER_VIAL):
+        v = Vial(num_blocks)
+        self.vials.append(v)
+
     def display_vials(self):
-        for k in range(2):
+        """Prints blocks line by line MAX_BLOCKS_PER_VIAL number of times
+            split into NUM_ROWS_VIALS number of rows"""
+        
+        def get_bounds(row):
+            left_bound = row * (len(self.vials) // NUM_ROWS_VIALS + 1)
+            right_bound = (row+1) * (len(self.vials) // NUM_ROWS_VIALS + 1)
+            if row == NUM_ROWS_VIALS-1:
+                right_bound = len(self.vials)
+            return left_bound, right_bound
+
+        def determine_top_block_content(vial):
+            try:
+                current_block = vial.blocks[MAX_BLOCKS_PER_VIAL-1 - i]
+                if self.is_mystery_level and current_block != vial.blocks[-1] and not current_block.is_revealed:
+                    content = "?"
+                else:
+                    content = current_block.color
+            except IndexError:
+                content = ' '
+            return content
+
+        for row in range(NUM_ROWS_VIALS):
             print("")
-            lined_vials = self.vials[:len(self.vials)//2]
+            bounds = get_bounds(row)
+            vials_in_current_row = self.vials[bounds[0]:bounds[1]]
+            if not vials_in_current_row:
+                continue
 
-            if k == 1:
-                lined_vials = self.vials[len(self.vials)//2:]
-
-            for i in range(6):
+            for i in range(MAX_BLOCKS_PER_VIAL + 2):
                 line = ""
 
-                if i == 4:
-                    line += "---   "*len(lined_vials)
+                # The bottom (closing) vial line
+                if i == MAX_BLOCKS_PER_VIAL:
+                    line += "---   " * len(vials_in_current_row)
 
-                elif i == 5:
-                    for j in range(len(lined_vials)):
-                        line += f"{j+1+k*len(self.vials)//2:2}    "
+                # The vial number label below
+                elif i == MAX_BLOCKS_PER_VIAL+1:
+                    for vial in vials_in_current_row:
+                        line += f"{ self.vials.index(vial)+1 :2}    "
 
                 else:
-                    for vial in lined_vials:
-                        try:
-                            e = vial.blocks[MAX_BLOCKS-i-1].color
-                        except IndexError:
-                            e = ' '
-                        line += f"|{e}|   "
+                    for vial in vials_in_current_row:
+                        line += f"|{determine_top_block_content(vial)}|   "
+
                 print(line)
             
 class Vial:
     """Stack data structure containing stacked WaterBlock objects"""
-    def __init__(self):
+    def __init__(self, max_blocks_per_vial = MAX_BLOCKS_PER_VIAL):
         self.blocks = []
-        self.max_blocks = MAX_BLOCKS
+        self.max_blocks_per_vial = max_blocks_per_vial
 
     def check_solved(self) -> bool:
         """Checks if vial is empty, or full with same color"""
@@ -78,34 +103,46 @@ class Vial:
             return False
 
         for block in self.blocks:
-            if block.color != self.blocks[-1].color:
+            if block.color != self.blocks[-1].color or not block.is_revealed:
                 return False
         return True
 
     def is_full(self):
-        return len(self.blocks) == self.max_blocks
+        return len(self.blocks) == self.max_blocks_per_vial
 
     def is_empty(self):
         return len(self.blocks) == 0
 
-    def generate_random_vial(self, color_choices):
-        for _ in range(self.max_blocks):
-            self.blocks.append(WaterBlock(color_choices.pop()))
+    def fill_vial_random(self, color_choices, is_mystery):
+        for i in range(self.max_blocks_per_vial):
+            self.blocks.append(WaterBlock(color_choices.pop(), not is_mystery))
 
     def pour_onto(self, bottom):
         w = self.blocks.pop()
+        w.is_revealed = True
         bottom.blocks.append(w)
 
-        if self.blocks and is_valid_move(self, bottom):
+        if self.blocks and is_valid_move(self, bottom) and self.blocks[-1].is_revealed:
             self.pour_onto(bottom)
+        if self.blocks:
+            self.blocks[-1].is_revealed = True
 
         self.check_solved()
         bottom.check_solved()
 
+
 class WaterBlock:
     """Objects that can only be stacked onto same colors"""
-    def __init__(self, color):
+    def __init__(self, color, is_revealed):
         self.color = color
+        self.is_revealed = is_revealed
+
+class Player:
+    def __init__(self, name, password):
+        self.name = name
+        self.password = password
+        self.current_level = 1
+        self.avg_time_per_level = 0
 
 def is_valid_move(top, bottom) -> bool:
     if top.blocks:
@@ -113,45 +150,3 @@ def is_valid_move(top, bottom) -> bool:
             if bottom.is_empty() or (bottom.blocks[-1].color == top.blocks[-1].color):
                 return True
     return False
-
-while __name__ == "__main__":
-    print('Water Sort Terminal Game!\n\
-    How to Play: Match the letters so that each vial as the same letter.\n\
-    You cannot "pour" a letter into a different letter or into a full vial!\n\n\
-    Input "e e" to exit or "g g" to give up.\n')
-
-    def main():
-        e = Level()
-
-        while not e.check_win():
-            e.display_vials()
-            try:
-                top, bottom = input("\n Input the numbered vial to pour from, then the vial to pour to. (Ex: 1 3): ").split()
-                if top == "e":
-                    return 1
-                if top == "g":
-                    print("\nGG! New level starting...\n")
-                    return 0
-                
-                top_vial = e.vials[int(top)-1]
-                bottom_vial = e.vials[int(bottom)-1]
-            except IndexError:
-                print("\nThat vial does not exist!")
-                continue
-            except ValueError:
-                print("Invalid input")
-                continue  
-
-            if is_valid_move(top_vial, bottom_vial):
-                top_vial.pour_onto(bottom_vial)
-            else:
-                print("Invalid move.")
-
-        exit = input("\nYou win! Input any key to continue, or 'e' to exit. ")
-        if exit.lower() == 'e':
-            return 1
-
-    exit = main()
-    if exit:
-        print("Thanks for playing!")
-        break
